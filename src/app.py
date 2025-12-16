@@ -8,11 +8,25 @@ for extracurricular activities at Mergington High School.
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 import os
+import json
 from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
+
+# Add CORS middleware to allow credentials
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Store logged-in teachers in memory (session)
+logged_in_teachers = {}
 
 # Mount the static files directory
 current_dir = Path(__file__).parent
@@ -130,3 +144,41 @@ def unregister_from_activity(activity_name: str, email: str):
     # Remove student
     activity["participants"].remove(email)
     return {"message": f"Unregistered {email} from {activity_name}"}
+
+
+@app.post("/auth/login")
+def login(username: str, password: str):
+    """Authenticate a teacher"""
+    teachers_file = os.path.join(Path(__file__).parent, "teachers.json")
+    
+    try:
+        with open(teachers_file, 'r') as f:
+            teachers_data = json.load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Teachers file not found")
+    
+    # Check credentials
+    for teacher in teachers_data.get("teachers", []):
+        if teacher["username"] == username and teacher["password"] == password:
+            # Store logged-in teacher
+            logged_in_teachers[username] = True
+            return {"message": f"Welcome, {username}!", "username": username}
+    
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.post("/auth/logout")
+def logout(username: str):
+    """Logout a teacher"""
+    if username in logged_in_teachers:
+        del logged_in_teachers[username]
+    return {"message": f"Logged out {username}"}
+
+
+@app.get("/auth/status")
+def auth_status(username: str = None):
+    """Check authentication status"""
+    if username:
+        return {"logged_in": username in logged_in_teachers}
+    return {"logged_in_users": list(logged_in_teachers.keys())}
+
